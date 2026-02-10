@@ -1,0 +1,66 @@
+body.page {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.card {
+  background: #020617;
+  padding: 2.5rem 3rem;
+  border-radius: 1.25rem;
+  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  text-align: center;
+  min-width: 320px;
+}
+
+.label {
+  font-size: 0.9rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+
+.symbol {
+  font-size: 1.25rem;
+  margin-top: 0.4rem;
+  color: #e5e7eb;
+}
+
+.price {
+  font-size: 3rem;
+  font-weight: 700;
+  margin-top: 1.4rem;
+  color: #4ade80;
+}
+
+.status {
+  margin-top: 1.2rem;
+  font-size: 0.9rem;
+  color: #9ca3af;
+}
+
+.time {
+  margin-top: 0.4rem;
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  margin-right: 0.4rem;
+  background: #fbbf24;
+}
+
+.dot.connected {
+  background: #22c55e;
+}
+

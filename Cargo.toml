@@ -12,6 +12,8 @@ serde_json = "1"
 reqwest = { version = "0.12", features = ["json", "rustls-tls"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+yew = { version = "0.21", features = ["ssr"] }
+tower-http = { version = "0.6", features = ["fs"] }
 
 [dev-dependencies]
 tower = "0.5"
