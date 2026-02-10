@@ -1,6 +1,10 @@
 use axum::Router;
+use futures_util::StreamExt;
+use serde::Deserialize;
 use std::net::SocketAddr;
+use std::time::Duration;
 use tokio::net::TcpListener;
+use tokio_tungstenite::connect_async;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -25,19 +29,51 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn spawn_binance_price_task(state: showmarket::state::AppState) {
-    let svc = showmarket::services::binance::BinancePriceService::new();
     tokio::spawn(async move {
-        let mut interval = tokio::time::interval(std::time::Duration::from_secs(2));
         loop {
-            interval.tick().await;
-            match svc.fetch_btcusdt().await {
-                Ok(update) => {
-                    state.set_latest(update).await;
+            let ws_url = "wss://stream.binance.com:9443/ws/btcusdt@trade";
+            match connect_async(ws_url).await {
+                Ok((ws_stream, _)) => {
+                    tracing::info!("connected to Binance trade stream");
+                    let (_write, mut read) = ws_stream.split();
+
+                    while let Some(msg) = read.next().await {
+                        let Ok(msg) = msg else {
+                            break;
+                        };
+                        if !msg.is_text() {
+                            continue;
+                        }
+                        let Ok(text) = msg.into_text() else {
+                            continue;
+                        };
+                        if let Ok(trade) = serde_json::from_str::<BinanceTrade>(&text) {
+                            let price = trade.p.parse::<f64>().unwrap_or(0.0);
+                            let update = showmarket::models::price::PriceUpdate {
+                                symbol: "BTCUSDT".to_string(),
+                                price,
+                                ts_ms: trade.e as i64,
+                            };
+                            state.set_latest(update).await;
+                        }
+                    }
+                    tracing::warn!("Binance trade stream closed, will reconnect");
                 }
                 Err(err) => {
-                    tracing::warn!(error = %err, "failed to fetch BTCUSDT");
+                    tracing::warn!(error = %err, "failed to connect Binance trade stream");
+                    tokio::time::sleep(Duration::from_secs(5)).await;
                 }
             }
+            // 短暂等待后重连，避免高频重试
+            tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
+}
+
+#[derive(Debug, Deserialize)]
+struct BinanceTrade {
+    /// price as string
+    p: String,
+    /// event time (ms)
+    e: u64,
 }

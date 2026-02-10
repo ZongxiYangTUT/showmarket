@@ -1,52 +1,68 @@
 body.page {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  background: #0f172a;
+  background: #020617;
   color: #e5e7eb;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   min-height: 100vh;
   margin: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.layout {
+  width: min(1120px, 100vw - 2rem);
+  margin: 1.5rem auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
 }
 
 .card {
   background: #020617;
-  padding: 2.5rem 3rem;
-  border-radius: 1.25rem;
-  box-shadow: 0 25px 50px -12px rgba(15, 23, 42, 0.8);
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  text-align: center;
-  min-width: 320px;
+  padding: 1.5rem 1.75rem;
+  border-radius: 0.75rem;
+  box-shadow: 0 20px 35px -18px rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5rem;
 }
 
 .label {
-  font-size: 0.9rem;
-  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   color: #9ca3af;
 }
 
 .symbol {
   font-size: 1.25rem;
-  margin-top: 0.4rem;
+  margin-top: 0.25rem;
   color: #e5e7eb;
 }
 
 .price {
-  font-size: 3rem;
+  font-size: 2.75rem;
   font-weight: 700;
-  margin-top: 1.4rem;
   color: #4ade80;
 }
 
-.status {
-  margin-top: 1.2rem;
+.status-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
   font-size: 0.9rem;
   color: #9ca3af;
 }
 
+.status {
+  display: flex;
+  align-items: center;
+}
+
 .time {
-  margin-top: 0.4rem;
   font-size: 0.8rem;
   color: #6b7280;
 }
@@ -62,5 +78,135 @@ body.page {
 
 .dot.connected {
   background: #22c55e;
+}
+
+.panel {
+  background: #020617;
+  border-radius: 0.75rem;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  padding: 0.75rem 1rem 1rem;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.panel-title {
+  font-size: 0.9rem;
+  color: #e5e7eb;
+}
+
+.panel-title-main {
+  font-weight: 600;
+}
+
+.panel-title-sub {
+  margin-left: 0.35rem;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+.symbol-tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.tab {
+  border-radius: 9999px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  padding: 0.25rem 0.9rem;
+  font-size: 0.8rem;
+  color: #e5e7eb;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tab.active {
+  background: #1d283a;
+  border-color: #4ade80;
+  color: #bbf7d0;
+}
+
+.tab:hover {
+  border-color: #e5e7eb;
+}
+
+.interval-tabs {
+  display: flex;
+  gap: 0.4rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+}
+
+.interval-label {
+  color: #6b7280;
+  margin-right: 0.25rem;
+}
+
+.interval-tab {
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  padding: 0.15rem 0.7rem;
+  background: transparent;
+  color: #9ca3af;
+  cursor: pointer;
+}
+
+.interval-tab.active {
+  background: #111827;
+  border-color: #4ade80;
+  color: #e5e7eb;
+}
+
+.interval-tab:hover {
+  color: #e5e7eb;
+}
+
+.chart-container {
+  background: #020617;
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.chart-canvas {
+  width: 100%;
+  height: 340px;
+  display: block;
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+  color: #9ca3af;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.legend-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 9999px;
+}
+
+.legend-dot.ma7 {
+  background: #facc15;
+}
+
+.legend-dot.ma25 {
+  background: #a855f7;
+}
+
+.legend-dot.ma99 {
+  background: #22d3ee;
 }
 

@@ -1,4 +1,7 @@
-use crate::models::price::{BinanceTickerPrice, PriceUpdate};
+use crate::models::{
+    kline::Kline,
+    price::{BinanceTickerPrice, PriceUpdate},
+};
 use anyhow::Context;
 use std::time::Duration;
 
@@ -45,6 +48,74 @@ impl BinancePriceService {
             price,
             ts_ms: chrono_ms_now(),
         })
+    }
+
+    /// Fetch recent klines for a symbol and interval, e.g. ("BTCUSDT", "1m").
+    pub async fn fetch_klines(
+        &self,
+        symbol: &str,
+        interval: &str,
+        limit: u16,
+    ) -> anyhow::Result<Vec<Kline>> {
+        let url = format!(
+            "{}/api/v3/klines?symbol={symbol}&interval={interval}&limit={limit}",
+            self.base_url
+        );
+        let resp = self
+            .client
+            .get(url)
+            .timeout(Duration::from_secs(5))
+            .send()
+            .await?
+            .error_for_status()?;
+
+        // Each kline is an array; see Binance docs.
+        let raw: Vec<Vec<serde_json::Value>> = resp.json().await?;
+        let mut klines = Vec::with_capacity(raw.len());
+
+        for entry in raw {
+            if entry.len() < 6 {
+                continue;
+            }
+
+            let open_time = entry[0].as_i64().unwrap_or(0);
+            let open = entry[1]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            let high = entry[2]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            let low = entry[3]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            let close = entry[4]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            let volume = entry[5]
+                .as_str()
+                .unwrap_or("0")
+                .parse::<f64>()
+                .unwrap_or(0.0);
+
+            klines.push(Kline {
+                open_time,
+                open,
+                high,
+                low,
+                close,
+                volume,
+            });
+        }
+
+        Ok(klines)
     }
 }
 
