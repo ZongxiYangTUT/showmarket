@@ -1,13 +1,23 @@
-use actix_web::{App, HttpServer, Responder, get, web};
+use anyhow::Ok;
+use axum::{Router, response::Redirect, routing::get};
+use std::net::SocketAddr;
+use tokio::net::TcpListener;
 
-#[get("hello/{name}")]
-async fn greet(name: web::Path<String>) -> impl Responder {
-    format!("hello {name}")
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    let app = Router::new()
+        .route("/hello-world", get(hello_world))
+        .fallback(anything_else);
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let listener = TcpListener::bind(addr).await?;
+    axum::serve(listener, app.into_make_service()).await?;
+    Ok(())
 }
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    HttpServer::new(|| App::new().service(greet))
-        .bind(("127.0.0.1", 8080))?
-        .run()
-        .await
+
+async fn hello_world() -> &'static str {
+    "Hello, World!"
+}
+
+async fn anything_else() -> Redirect {
+    Redirect::to("/hello-world")
 }
