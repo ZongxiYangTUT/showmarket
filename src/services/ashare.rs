@@ -1,76 +1,135 @@
 use crate::models::kline::Kline;
 use crate::models::price::PriceUpdate;
+use anyhow::{Context, anyhow};
+use chrono::{Local, NaiveDate, NaiveDateTime, TimeZone};
+use serde::Deserialize;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-/// 模拟的 A 股行情服务。
+/// A 股行情服务。
 ///
-/// 目前不访问任何外部接口，只在内存中生成 K 线和实时价格，
-/// 方便在无法连外网的环境下调试 UI 和交互。
+/// - 历史 K 线：使用东方财富 push2his K 线接口
+/// - 实时价格：使用东方财富 push2 实时行情接口
+///
+/// 后续如果你有自己的行情中台，只需在这里替换调用即可。
 #[derive(Clone)]
-pub struct AshareService;
+pub struct AshareService {
+    client: reqwest::Client,
+}
 
 impl AshareService {
     pub fn new() -> Self {
-        Self
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .user_agent("showmarket-ashare/0.1")
+            .build()
+            .expect("failed to build reqwest client");
+        Self { client }
     }
 
-    /// 生成模拟 K 线数据，按给定周期和数量回溯。
+    /// 获取真实 A 股 K 线数据。
+    ///
+    /// `symbol` 形如 "600000.SH" / "000001.SZ" / "300750.SZ"
+    /// `interval` 映射为东方财富的 klt 参数：
+    ///   1m -> 101, 5m -> 102, 15m -> 103, 30m -> 104,
+    ///   1h -> 105, 1d -> 106, 1w -> 107, 1M -> 108
     pub async fn fetch_klines(
         &self,
         symbol: &str,
         interval: &str,
         limit: u16,
     ) -> anyhow::Result<Vec<Kline>> {
-        let interval_ms = interval_to_ms(interval);
-        let now_ms = now_ms();
-        let limit = limit.min(500) as usize;
+        let secid = to_secid(symbol).context("unsupported symbol")?;
+        let klt = to_klt(interval)?;
+        let limit = limit.min(500);
 
-        // 简单随机游走生成价格
-        let mut klines = Vec::with_capacity(limit);
-        let mut price = base_price_for(symbol);
+        let url = format!(
+            "https://push2his.eastmoney.com/api/qt/stock/kline/get\
+             ?secid={secid}&klt={klt}&fqt=1&end=20500101&lmt={limit}\
+             &fields1=f1,f2,f3,f4,f5&fields2=f51,f52,f53,f54,f55,f56,f57,f58"
+        );
 
-        for i in 0..limit {
-            let idx_from_end = (limit - 1 - i) as i64;
-            let open_time = now_ms - interval_ms * (idx_from_end + 1);
+        let resp = self.client.get(url).send().await?.error_for_status()?;
 
-            // 生成四个价格
-            let step = (symbol_hash(symbol) as f64 % 5.0 + 1.0) * 0.1;
-            let noise = ((open_time / 1000) as f64).sin() * step;
-            let open = price + noise;
-            let close = open + (i as f64).sin() * step * 0.2;
-            let high = open.max(close) + step * 0.5;
-            let low = open.min(close) - step * 0.5;
-            let volume = 1_000.0 + (i as f64 * 37.0) % 10_000.0;
+        let body = resp.text().await?;
+        let em: EmKlineResp = serde_json::from_str(&body)
+            .with_context(|| format!("parse kline response failed: {body}"))?;
 
-            klines.push(Kline {
-                open_time,
+        let data = em.data.ok_or_else(|| anyhow!("empty kline data"))?;
+        let mut out = Vec::with_capacity(data.klines.len());
+
+        for s in data.klines {
+            // "2024-02-10 09:30,open,close,high,low,volume,amount,amplitude"
+            let parts: Vec<&str> = s.split(',').collect();
+            if parts.len() < 6 {
+                continue;
+            }
+            let ts_ms = parse_em_time(parts[0]);
+            let open = parts[1].parse::<f64>().unwrap_or(0.0);
+            let close = parts[2].parse::<f64>().unwrap_or(0.0);
+            let high = parts[3].parse::<f64>().unwrap_or(0.0);
+            let low = parts[4].parse::<f64>().unwrap_or(0.0);
+            let volume = parts[5].parse::<f64>().unwrap_or(0.0);
+
+            out.push(Kline {
+                open_time: ts_ms,
                 open,
                 high,
                 low,
                 close,
                 volume,
             });
-
-            price = close;
         }
 
-        Ok(klines)
+        Ok(out)
     }
 
-    /// 生成某个股票的模拟最新价（用于本地测试，真实环境请替换为实际行情源）。
-    pub fn next_mock_price(&self, symbol: &str, prev: Option<f64>) -> PriceUpdate {
-        let base = prev.unwrap_or_else(|| base_price_for(symbol));
-        let t = now_ms() as f64 / 1000.0;
-        let step = (symbol_hash(symbol) as f64 % 3.0 + 1.0) * 0.2;
-        let delta = (t / 5.0).sin() * step;
-        let price = (base + delta).max(0.01);
+    /// 获取某支股票的真实最新价（东方财富推送接口）。
+    pub async fn fetch_realtime_quote(&self, symbol: &str) -> anyhow::Result<PriceUpdate> {
+        let secid = to_secid(symbol).context("unsupported symbol")?;
+        // 只取最新价 f43
+        let url = format!(
+            "https://push2.eastmoney.com/api/qt/stock/get\
+             ?secid={secid}&fields=f43"
+        );
 
-        PriceUpdate {
+        let resp = self.client.get(url).send().await?.error_for_status()?;
+
+        let body = resp.text().await?;
+        let em: EmQuoteResp =
+            serde_json::from_str(&body).with_context(|| format!("parse quote failed: {body}"))?;
+
+        let data = em.data.ok_or_else(|| anyhow!("empty quote data"))?;
+        // 东方财富推送的 f43 通常是价格 * 100，单位为“分”
+        let raw = data.f43;
+        let price = raw / 100.0;
+
+        Ok(PriceUpdate {
             symbol: symbol.to_string(),
             price,
             ts_ms: now_ms(),
-        }
+        })
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct EmKlineResp {
+    data: Option<EmKlineData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmKlineData {
+    klines: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmQuoteResp {
+    data: Option<EmQuoteData>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EmQuoteData {
+    #[serde(rename = "f43")]
+    f43: f64,
 }
 
 fn now_ms() -> i64 {
@@ -80,33 +139,49 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
-fn interval_to_ms(interval: &str) -> i64 {
-    match interval {
-        "1m" => 60_000,
-        "5m" => 5 * 60_000,
-        "15m" => 15 * 60_000,
-        "30m" => 30 * 60_000,
-        "1h" => 60 * 60_000,
-        "4h" => 4 * 60_60_000 / 60, // avoid overflow
-        "1d" => 24 * 60 * 60_000,
-        "1w" => 7 * 24 * 60 * 60_000,
-        _ => 60_000,
+fn to_secid(symbol: &str) -> Option<String> {
+    if let Some(code) = symbol.strip_suffix(".SH") {
+        Some(format!("1.{}", code))
+    } else if let Some(code) = symbol.strip_suffix(".SZ") {
+        Some(format!("0.{}", code))
+    } else {
+        None
     }
 }
 
-fn base_price_for(symbol: &str) -> f64 {
-    match symbol {
-        "600000.SH" => 10.0,
-        "000001.SZ" => 12.0,
-        "300750.SZ" => 180.0,
-        _ => 20.0 + (symbol_hash(symbol) % 100) as f64,
-    }
+fn to_klt(interval: &str) -> anyhow::Result<u32> {
+    let v = match interval {
+        "1m" => 101,
+        "5m" => 102,
+        "15m" => 103,
+        "30m" => 104,
+        "1h" => 105,
+        "1d" => 106,
+        "1w" => 107,
+        "1M" => 108,
+        other => return Err(anyhow!("unsupported interval: {other}")),
+    };
+    Ok(v)
 }
 
-fn symbol_hash(symbol: &str) -> u64 {
-    let mut h = 0u64;
-    for b in symbol.bytes() {
-        h = h.wrapping_mul(31).wrapping_add(b as u64);
+fn parse_em_time(s: &str) -> i64 {
+    // 支持 "YYYY-MM-DD HH:MM"（分时/分钟）和 "YYYY-MM-DD"（日/周/月）
+    if let Ok(ndt) = NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M") {
+        let dt = Local
+            .from_local_datetime(&ndt)
+            .single()
+            .unwrap_or_else(|| Local.timestamp_millis_opt(0).single().unwrap());
+        dt.timestamp_millis()
+    } else if let Ok(nd) = NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let ndt = nd
+            .and_hms_opt(15, 0, 0)
+            .unwrap_or_else(|| nd.and_hms_opt(0, 0, 0).unwrap());
+        let dt = Local
+            .from_local_datetime(&ndt)
+            .single()
+            .unwrap_or_else(|| Local.timestamp_millis_opt(0).single().unwrap());
+        dt.timestamp_millis()
+    } else {
+        now_ms()
     }
-    h
 }

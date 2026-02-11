@@ -1,5 +1,4 @@
 use axum::Router;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -29,22 +28,21 @@ async fn main() -> anyhow::Result<()> {
 fn spawn_binance_price_task(state: showmarket::state::AppState) {
     let svc = showmarket::services::ashare::AshareService::new();
     tokio::spawn(async move {
-        // 本地模拟三个 A 股标的的实时价格。
-        let symbols = vec![
-            "600000.SH".to_string(),
-            "000001.SZ".to_string(),
-            "300750.SZ".to_string(),
-        ];
-        let mut last_prices: HashMap<String, f64> = HashMap::new();
+        // 先只推送上证指数，避免价格在多个标的之间来回闪烁。
+        let symbols = vec!["000001.SH".to_string()];
         let mut interval = tokio::time::interval(Duration::from_millis(800));
 
         loop {
             interval.tick().await;
             for sym in &symbols {
-                let prev = last_prices.get(sym).cloned();
-                let update = svc.next_mock_price(sym, prev);
-                last_prices.insert(sym.clone(), update.price);
-                state.set_latest(update).await;
+                match svc.fetch_realtime_quote(sym).await {
+                    Ok(update) => {
+                        state.set_latest(update).await;
+                    }
+                    Err(err) => {
+                        tracing::warn!(%sym, error = %err, "failed to fetch realtime quote");
+                    }
+                }
             }
         }
     });

@@ -7,11 +7,30 @@ const INLINE_WS_JS: &str = r#"
       const statusTextEl = document.getElementById('status-text');
       const timeEl = document.getElementById('time');
 
+      // 按 symbol 缓存最近一次价格和时间，方便切换指数时立即展示
+      const lastPriceBySymbol = {};
+      const lastTimeBySymbol = {};
+
       function formatTs(tsMs) {
         if (!tsMs) return '';
         const d = new Date(tsMs);
         return d.toLocaleString();
       }
+
+      // 供 K 线脚本在切换 currentSymbol 时调用
+      window.__setRealtimePriceFromCache = function (symbol) {
+        const p = lastPriceBySymbol[symbol];
+        const ts = lastTimeBySymbol[symbol];
+        if (typeof p === 'number') {
+          priceEl.textContent = p.toFixed(2);
+          timeEl.textContent = ts ? '更新时间：' + formatTs(ts) : '';
+          statusTextEl.textContent = '实时价格推送中';
+        } else {
+          priceEl.textContent = '--.--';
+          timeEl.textContent = '';
+          statusTextEl.textContent = '等待该指数价格推送...';
+        }
+      };
 
       function connect() {
         const wsUrl =
@@ -28,18 +47,33 @@ const INLINE_WS_JS: &str = r#"
         ws.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            if (!data || typeof data.price === 'undefined') {
+              return;
+            }
+
+            const sym = data.symbol || window.currentSymbol || '000001.SH';
+
+            let priceNum;
             if (typeof data.price === 'number') {
-              priceEl.textContent = data.price.toFixed(2);
+              priceNum = data.price;
             } else if (typeof data.price === 'string') {
               const n = Number(data.price);
-              if (!Number.isNaN(n)) {
-                priceEl.textContent = n.toFixed(2);
-              }
+              if (Number.isNaN(n)) return;
+              priceNum = n;
+            } else {
+              return;
             }
-            timeEl.textContent = data.ts_ms
-              ? '更新时间：' + formatTs(data.ts_ms)
-              : '';
-            statusTextEl.textContent = '实时价格推送中';
+
+            lastPriceBySymbol[sym] = priceNum;
+            lastTimeBySymbol[sym] = data.ts_ms || null;
+
+            if (sym === window.currentSymbol || (!window.currentSymbol && sym === '000001.SH')) {
+              priceEl.textContent = priceNum.toFixed(2);
+              timeEl.textContent = data.ts_ms
+                ? '更新时间：' + formatTs(data.ts_ms)
+                : '';
+              statusTextEl.textContent = '实时价格推送中';
+            }
           } catch (e) {
             console.error('invalid message', e);
           }
@@ -61,7 +95,8 @@ const INLINE_WS_JS: &str = r#"
 "#;
 
 const INLINE_KLINE_JS: &str = r#"
-      let currentSymbol = 'BTCUSDT';
+      let currentSymbol = '000001.SH';
+      window.currentSymbol = currentSymbol;
       let currentInterval = '1m';
       let lastKlines = [];
       let hoverIndex = null;
@@ -96,6 +131,7 @@ const INLINE_KLINE_JS: &str = r#"
             const sym = tab.getAttribute('data-symbol-tab');
             if (!sym || sym === currentSymbol) return;
             currentSymbol = sym;
+            window.currentSymbol = currentSymbol;
             updateActiveTabs();
             loadKlines(true);
           });
@@ -237,6 +273,19 @@ const INLINE_KLINE_JS: &str = r#"
 
         const symbolLabel = document.getElementById('chart-symbol');
         if (symbolLabel) symbolLabel.textContent = currentSymbol;
+        const symbolLabelTop = document.getElementById('chart-symbol-label');
+        if (symbolLabelTop) {
+          const active = document.querySelector('[data-symbol-tab].active');
+          if (active) {
+            symbolLabelTop.textContent = active.textContent || currentSymbol;
+          } else {
+            symbolLabelTop.textContent = currentSymbol;
+          }
+        }
+
+        if (window.__setRealtimePriceFromCache) {
+          window.__setRealtimePriceFromCache(currentSymbol);
+        }
         const intervalLabel = document.getElementById('chart-interval');
         if (intervalLabel) intervalLabel.textContent = currentInterval;
       }
@@ -639,15 +688,15 @@ fn app() -> Html {
         <html lang="en">
           <head>
             <meta charset="utf-8" />
-            <title>{ "BTCUSDT Realtime Price" }</title>
+            <title>{ "A股指数实时行情" }</title>
             <link rel="stylesheet" href="/static/style.css" />
           </head>
           <body class="page">
             <div class="layout">
               <div class="card">
                 <div>
-                  <div class="label">{ "Realtime Price" }</div>
-                  <div class="symbol">{ "BTC / USDT" }</div>
+                  <div class="label">{ "Realtime Index" }</div>
+                  <div class="symbol" id="chart-symbol-label">{ "上证指数 000001.SH" }</div>
                 </div>
                 <div class="price" id="price">{ "--.--" }</div>
                 <div class="status-row">
@@ -662,7 +711,7 @@ fn app() -> Html {
               <div class="panel">
                 <div class="panel-header">
                   <div class="panel-title">
-                    <span class="panel-title-main" id="chart-symbol">{ "BTCUSDT" }</span>
+                    <span class="panel-title-main" id="chart-symbol">{ "000001.SH" }</span>
                     <span class="panel-title-sub" id="chart-interval">{ "1m" }</span>
                   </div>
                   <div class="legend">
@@ -681,9 +730,9 @@ fn app() -> Html {
                   </div>
                 </div>
                 <div class="symbol-tabs">
-                  <button class="tab active" data-symbol-tab="BTCUSDT">{ "BTCUSDT" }</button>
-                  <button class="tab" data-symbol-tab="ETHUSDT">{ "ETHUSDT" }</button>
-                  <button class="tab" data-symbol-tab="SOLUSDT">{ "SOLUSDT" }</button>
+                  <button class="tab active" data-symbol-tab="000001.SH">{ "上证指数 000001.SH" }</button>
+                  <button class="tab" data-symbol-tab="399001.SZ">{ "深证成指 399001.SZ" }</button>
+                  <button class="tab" data-symbol-tab="399006.SZ">{ "创业板指 399006.SZ" }</button>
                 </div>
                 <div class="interval-tabs">
                   <span class="interval-label">{ "周期" }</span>

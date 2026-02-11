@@ -14,6 +14,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 yew = { version = "0.21", features = ["ssr"] }
 tower-http = { version = "0.6", features = ["fs"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
 [dev-dependencies]
 tower = "0.5"
