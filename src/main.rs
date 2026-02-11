@@ -1,10 +1,8 @@
 use axum::Router;
-use futures_util::StreamExt;
-use serde::Deserialize;
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::Duration;
 use tokio::net::TcpListener;
-use tokio_tungstenite::connect_async;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -29,51 +27,25 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn spawn_binance_price_task(state: showmarket::state::AppState) {
+    let svc = showmarket::services::ashare::AshareService::new();
     tokio::spawn(async move {
-        loop {
-            let ws_url = "wss://stream.binance.com:9443/ws/btcusdt@trade";
-            match connect_async(ws_url).await {
-                Ok((ws_stream, _)) => {
-                    tracing::info!("connected to Binance trade stream");
-                    let (_write, mut read) = ws_stream.split();
+        // 本地模拟三个 A 股标的的实时价格。
+        let symbols = vec![
+            "600000.SH".to_string(),
+            "000001.SZ".to_string(),
+            "300750.SZ".to_string(),
+        ];
+        let mut last_prices: HashMap<String, f64> = HashMap::new();
+        let mut interval = tokio::time::interval(Duration::from_millis(800));
 
-                    while let Some(msg) = read.next().await {
-                        let Ok(msg) = msg else {
-                            break;
-                        };
-                        if !msg.is_text() {
-                            continue;
-                        }
-                        let Ok(text) = msg.into_text() else {
-                            continue;
-                        };
-                        if let Ok(trade) = serde_json::from_str::<BinanceTrade>(&text) {
-                            let price = trade.p.parse::<f64>().unwrap_or(0.0);
-                            let update = showmarket::models::price::PriceUpdate {
-                                symbol: "BTCUSDT".to_string(),
-                                price,
-                                ts_ms: trade.e as i64,
-                            };
-                            state.set_latest(update).await;
-                        }
-                    }
-                    tracing::warn!("Binance trade stream closed, will reconnect");
-                }
-                Err(err) => {
-                    tracing::warn!(error = %err, "failed to connect Binance trade stream");
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                }
+        loop {
+            interval.tick().await;
+            for sym in &symbols {
+                let prev = last_prices.get(sym).cloned();
+                let update = svc.next_mock_price(sym, prev);
+                last_prices.insert(sym.clone(), update.price);
+                state.set_latest(update).await;
             }
-            // 短暂等待后重连，避免高频重试
-            tokio::time::sleep(Duration::from_secs(2)).await;
         }
     });
-}
-
-#[derive(Debug, Deserialize)]
-struct BinanceTrade {
-    /// price as string
-    p: String,
-    /// event time (ms)
-    e: u64,
 }
